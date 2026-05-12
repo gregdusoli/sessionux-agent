@@ -1,0 +1,41 @@
+{
+  "name": "sessionux-agent",
+  "version": "0.1.0",
+  "description": "Secure local workstation unlocking system for Linux",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "electron -r tsx/cjs src/main.ts",
+    "build": "esbuild src/main.ts --bundle --platform=node --target=node20 --outfile=dist/main.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:cov": "vitest run --coverage",
+    "lint": "eslint src/**",
+    "typecheck": "tsc --noEmit",
+    "check:all": "npm run lint && npm run typecheck && npm run test"
+  },
+  "keywords": [
+    "linux",
+    "unlock",
+    "biometric",
+    "security"
+  ],
+  "author": "Sessionux Contributors",
+  "license": "MIT",
+  "dependencies": {
+    "electron-updater": "^6.1.7",
+    "fastify": "^5.8.5",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.7.0",
+    "electron": "^42.0.1",
+    "esbuild": "^0.28.0",
+    "eslint": "^10.3.0",
+    "prettier": "^3.2.5",
+    "tsconfig-paths": "^4.2.0",
+    "tsx": "^4.7.1",
+    "typescript": "^6.0.3",
+    "vite-tsconfig-paths": "^6.1.1",
+    "vitest": "^4.1.6"
+  }
+}
