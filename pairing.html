@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pair Device - Sessionux</title>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+      background: #101419;
+      color: #e8edf2;
+    }
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+    }
+    #qrcode-container {
+      background: white;
+      padding: 16px;
+      border-radius: 12px;
+      margin-bottom: 24px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    canvas {
+      display: block;
+    }
+    .timer {
+      font-size: 14px;
+      color: #9aa8b5;
+      margin-top: 12px;
+    }
+    .cancel-btn {
+      margin-top: 32px;
+      padding: 10px 24px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      color: #e8edf2;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .cancel-btn:hover {
+      background: rgba(255, 0, 0, 0.1);
+      border-color: rgba(255, 0, 0, 0.2);
+    }
+  </style>
+</head>
+<body>
+  <h1>Pair New Device</h1>
+  <p>Scan this code with the Sessionux Mobile app</p>
+  
+  <div id="qrcode-container">
+    <canvas id="qr-canvas"></canvas>
+  </div>
+
+  <div class="timer" id="timer">Expires in: <span id="countdown">120</span>s</div>
+
+  <button class="cancel-btn" id="cancel-btn">Cancel Pairing</button>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    ipcRenderer.on('pairing-data', (event, data) => {
+      const { payload, expiresAt } = data;
+      const canvas = document.getElementById('qr-canvas');
+      
+      QRCode.toCanvas(canvas, JSON.stringify(payload), {
+        width: 256,
+        margin: 0,
+        color: {
+          dark: '#101419',
+          light: '#ffffff'
+        }
+      }, (error) => {
+        if (error) console.error(error);
+      });
+
+      const updateTimer = () => {
+        const remaining = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
+        document.getElementById('countdown').innerText = remaining;
+        if (remaining <= 0) {
+          ipcRenderer.send('pairing-cancelled');
+        }
+      };
+
+      setInterval(updateTimer, 1000);
+      updateTimer();
+    });
+
+    document.getElementById('cancel-btn').addEventListener('click', () => {
+      ipcRenderer.send('pairing-cancelled');
+    });
+  </script>
+</body>
+</html>

@@ -1,10 +1,15 @@
 {
   "name": "sessionux-agent",
   "version": "0.1.0",
+  "type": "module",
   "description": "Secure local workstation unlocking system for Linux",
+
   "main": "dist/main.js",
   "scripts": {
-    "dev": "electron -r tsx/cjs src/main.ts",
+    "dev": "NODE_OPTIONS='--import tsx' electron src/main.ts",
+
+
+
     "build": "esbuild src/main.ts --bundle --platform=node --target=node20 --outfile=dist/main.js",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -24,6 +29,7 @@
   "dependencies": {
     "electron-updater": "^6.1.7",
     "fastify": "^5.8.5",
+    "qrcode": "^1.5.4",
     "zod": "^4.4.3"
   },
   "devDependencies": {
