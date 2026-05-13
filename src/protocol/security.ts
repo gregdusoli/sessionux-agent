@@ -1,5 +1,3 @@
-import type { FastifyPluginAsync } from 'fastify';
-
 /**
  * Security configurations for the Agent server.
  */
