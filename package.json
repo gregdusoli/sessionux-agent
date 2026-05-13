@@ -5,14 +5,17 @@
   "description": "Secure local workstation unlocking system for Linux",
   "main": "dist/main.js",
   "scripts": {
+    "start": "electron dist/main.js",
     "dev": "NODE_OPTIONS='--import tsx' electron src/main.ts",
     "build:main": "esbuild src/main.ts --bundle --platform=node --target=node20 --outfile=dist/main.js --external:electron --format=esm",
     "build:server": "esbuild src/server/index.ts --bundle --platform=node --target=node20 --outfile=dist/server/index.js --format=esm",
     "build": "npm run build:main && npm run build:server",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:cov": "vitest run --coverage",
+    "coverage": "vitest run --coverage",
+    "test:cov": "npm run coverage",
     "lint": "eslint src/**",
+    "linter": "npm run lint",
     "typecheck": "tsc --noEmit",
     "check:all": "npm run lint && npm run typecheck && npm run test"
   },
@@ -27,6 +30,8 @@
   "dependencies": {
     "@fastify/cors": "^11.2.0",
     "@fastify/rate-limit": "^10.3.0",
+    "@noble/ed25519": "^3.1.0",
+    "@noble/hashes": "^2.2.0",
     "bonjour-service": "^1.3.0",
     "electron-updater": "^6.1.7",
     "fastify": "^5.8.5",
@@ -36,7 +41,9 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^25.7.0",
+    "@vitest/coverage-v8": "^4.1.6",
     "electron": "^42.0.1",
     "esbuild": "^0.28.0",
     "eslint": "^10.3.0",
@@ -44,6 +51,7 @@
     "tsconfig-paths": "^4.2.0",
     "tsx": "^4.7.1",
     "typescript": "^6.0.3",
+    "typescript-eslint": "^8.59.3",
     "vite-tsconfig-paths": "^6.1.1",
     "vitest": "^4.1.6"
   }

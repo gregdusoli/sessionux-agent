@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { SignatureService } from './signature';
 import { NonceStore, ClockService } from './anti-replay';
 import { SetupTokenService } from './pairing';
@@ -63,6 +62,15 @@ describe('Sessionux Protocol', () => {
       
       const isValid = SignatureService.verifySignature(alteredPayload, signature, publicKey);
       expect(isValid).toBe(false);
+    });
+
+    it('should verify raw Base64URL Ed25519 signatures used by Mobile', () => {
+      const { publicKey, privateKey } = SignatureService.generateRawKeyPair();
+      const payload = { command: 'unlock', nonce: '123' };
+
+      const signature = SignatureService.signPayloadRaw(payload, privateKey);
+
+      expect(SignatureService.verifySignature(payload, signature, publicKey)).toBe(true);
     });
   });
 

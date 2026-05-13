@@ -18,6 +18,8 @@ const ConfigSchema = z.object({
   trusted_devices: z.array(DeviceSchema),
 });
 
+const CURRENT_CONFIG_VERSION = 1;
+
 export type Device = z.infer<typeof DeviceSchema>;
 export type Config = z.infer<typeof ConfigSchema>;
 
@@ -40,7 +42,7 @@ export class StorageService {
 
     if (!fs.existsSync(this.configFile)) {
       this.config = {
-        version: 1,
+        version: CURRENT_CONFIG_VERSION,
         pc_id: randomUUID(),
         trusted_devices: [],
       };
@@ -55,12 +57,30 @@ export class StorageService {
     try {
       const data = fs.readFileSync(this.configFile, 'utf-8');
       const parsed = JSON.parse(data);
-      this.config = ConfigSchema.parse(parsed);
+      this.config = this.migrate(ConfigSchema.parse(parsed));
     } catch (error) {
       console.error('Failed to load config:', error);
       // If corruption, we might want to backup and start fresh or throw
-      throw new Error('Config corruption');
+      throw new Error('Config corruption', { cause: error });
     }
+  }
+
+  private migrate(config: Config): Config {
+    if (config.version === CURRENT_CONFIG_VERSION) {
+      return config;
+    }
+
+    const backupFile = `${this.configFile}.v${config.version}.bak`;
+    fs.copyFileSync(this.configFile, backupFile);
+
+    const migrated = {
+      ...config,
+      version: CURRENT_CONFIG_VERSION,
+    };
+
+    this.config = migrated;
+    this.save();
+    return migrated;
   }
 
   private save() {

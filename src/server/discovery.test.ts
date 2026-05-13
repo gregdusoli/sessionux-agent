@@ -1,6 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { DiscoveryService } from './discovery';
-import os from 'node:os';
 
 // Mock bonjour-service
 vi.mock('bonjour-service', () => {

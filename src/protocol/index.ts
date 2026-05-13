@@ -11,6 +11,7 @@ export const PairingQrPayloadSchema = z.object({
   pc_id: z.string().uuid(),
   ip: z.string().regex(/^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/),
   port: z.number().int().positive(),
+  expires_at: z.iso.datetime(),
 });
 
 export type PairingQrPayload = z.infer<typeof PairingQrPayloadSchema>;

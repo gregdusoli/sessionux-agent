@@ -7,6 +7,7 @@ let mainWindow: BrowserWindow | null = null;
 let pairingWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let serverProcess: ChildProcess | null = null;
+let currentPairingToken: string | null = null;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
@@ -23,9 +24,10 @@ function startServer() {
 
   serverProcess.on('message', (msg: any) => {
     if (msg.type === 'pairing-token-generated') {
+      currentPairingToken = msg.token;
       pairingWindow?.webContents.send('pairing-data', { 
         payload: msg.payload, 
-        expiresAt: Date.now() + 2 * 60 * 1000 
+        expiresAt: new Date(msg.payload.expires_at).getTime(),
       });
     }
     if (msg.type === 'pairing-success') {
@@ -79,8 +81,9 @@ function createMainWindow() {
     height: 600,
     title: 'Sessionux - Dispositivos',
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(process.cwd(), 'preload.js'),
     }
   });
 
@@ -103,8 +106,9 @@ function createPairingWindow() {
     resizable: false,
     title: 'Parear Dispositivo',
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(process.cwd(), 'preload.js'),
     }
   });
 
@@ -138,7 +142,29 @@ ipcMain.on('start-pairing', () => {
 });
 
 ipcMain.on('pairing-cancelled', () => {
+  if (currentPairingToken) {
+    serverProcess?.send({ type: 'cancel-pairing-token', token: currentPairingToken });
+    currentPairingToken = null;
+  }
   pairingWindow?.close();
+});
+
+ipcMain.handle('devices:list', async () => {
+  const response = await fetch('http://localhost:3000/devices');
+  if (!response.ok) {
+    throw new Error(`Failed to list devices: ${response.status}`);
+  }
+  return response.json();
+});
+
+ipcMain.handle('devices:remove', async (_event, deviceId: string) => {
+  const response = await fetch(`http://localhost:3000/devices/${encodeURIComponent(deviceId)}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to remove device: ${response.status}`);
+  }
+  return response.json();
 });
 
 app.whenReady().then(() => {

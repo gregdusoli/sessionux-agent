@@ -65,9 +65,7 @@
   <button class="cancel-btn" id="cancel-btn">Cancel Pairing</button>
 
   <script>
-    const { ipcRenderer } = require('electron');
-
-    ipcRenderer.on('pairing-data', (event, data) => {
+    window.sessionux.onPairingData((data) => {
       const { payload, expiresAt } = data;
       const canvas = document.getElementById('qr-canvas');
       
@@ -86,7 +84,7 @@
         const remaining = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
         document.getElementById('countdown').innerText = remaining;
         if (remaining <= 0) {
-          ipcRenderer.send('pairing-cancelled');
+          window.sessionux.cancelPairing();
         }
       };
 
@@ -95,7 +93,7 @@
     });
 
     document.getElementById('cancel-btn').addEventListener('click', () => {
-      ipcRenderer.send('pairing-cancelled');
+      window.sessionux.cancelPairing();
     });
   </script>
 </body>
