@@ -15,6 +15,7 @@ import { SetupTokenService } from '../protocol/pairing.js';
 import { SignatureService } from '../protocol/signature.js';
 import { NonceStore, ClockService } from '../protocol/anti-replay.js';
 import { DiscoveryService } from './discovery.js';
+import { SecurityConfig } from '../protocol/security.js';
 
 const storage = new StorageService();
 storage.init();
@@ -25,6 +26,8 @@ const nonceStore = new NonceStore();
 const discovery = new DiscoveryService();
 
 const fastify = Fastify({
+  bodyLimit: SecurityConfig.bodyLimit,
+  requestTimeout: SecurityConfig.requestTimeout,
   logger: {
     transport: {
       target: 'pino-pretty'
@@ -32,10 +35,12 @@ const fastify = Fastify({
   }
 });
 
-await fastify.register(cors);
+await fastify.register(cors, {
+  origin: false,
+});
 await fastify.register(rateLimit, {
-  max: 3,
-  timeWindow: '1 second'
+  max: SecurityConfig.rateLimit.max,
+  timeWindow: SecurityConfig.rateLimit.timeWindow
 });
 
 // Health check
@@ -48,7 +53,8 @@ fastify.post('/pairing/complete', async (request, reply) => {
   try {
     const body = PairingRequestSchema.parse(request.body);
 
-    if (!pairingService.consume(body.setup_token)) {
+    const tokenPcId = pairingService.consume(body.setup_token);
+    if (!tokenPcId || tokenPcId !== body.pc_id || body.pc_id !== storage.getPcId()) {
       return reply.code(400).send({
         protocol_version: PROTOCOL_VERSION,
         status: 'error',
@@ -169,7 +175,7 @@ fastify.get('/devices', async () => {
   return storage.getTrustedDevices();
 });
 
-fastify.delete('/devices/:deviceId', async (request, reply) => {
+fastify.delete('/devices/:deviceId', async (request, _reply) => {
   const { deviceId } = request.params as { deviceId: string };
   storage.removeDevice(deviceId);
   return { success: true };
@@ -187,13 +193,16 @@ const start = async () => {
 
     // Inicia o pairing service se solicitado pelo main
     process.on('message', (msg: any) => {
-      if (msg.type === 'generate-pairing-token') {
+    if (msg.type === 'generate-pairing-token') {
         const { token, payload } = pairingService.generateQrPayload(
           storage.getPcId(),
           msg.ip,
           port
         );
         process.send?.({ type: 'pairing-token-generated', token, payload });
+      }
+      if (msg.type === 'cancel-pairing-token') {
+        pairingService.invalidate(msg.token);
       }
     });
 

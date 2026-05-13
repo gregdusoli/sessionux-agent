@@ -1,4 +1,3 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import Fastify from 'fastify';
 import { PROTOCOL_VERSION } from '../protocol/index';
 

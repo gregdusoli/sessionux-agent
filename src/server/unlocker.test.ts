@@ -1,6 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SessionUnlocker } from './unlocker';
-import { spawn, exec } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 
 vi.mock('node:child_process', async () => {
@@ -8,7 +7,6 @@ vi.mock('node:child_process', async () => {
   return {
     ...actual,
     spawn: vi.fn(),
-    exec: vi.fn(),
   };
 });
 
@@ -58,12 +56,15 @@ describe('SessionUnlocker', () => {
     // Mock loginctl failure
     const mockProc = new EventEmitter() as any;
     mockProc.stderr = new EventEmitter();
-    vi.mocked(spawn).mockReturnValue(mockProc);
+    vi.mocked(spawn).mockImplementation((command) => {
+      if (command === 'loginctl') {
+        return mockProc;
+      }
 
-    // Mock successful fallback (exec call)
-    vi.mocked(exec).mockImplementation((cmd, cb: any) => {
-      cb(null, { stdout: '', stderr: '' });
-      return {} as any;
+      const fallbackProc = new EventEmitter() as any;
+      fallbackProc.stderr = new EventEmitter();
+      setTimeout(() => fallbackProc.emit('close', 0), 0);
+      return fallbackProc;
     });
 
     const promise = unlocker.performUnlock();
@@ -72,19 +73,25 @@ describe('SessionUnlocker', () => {
 
     const result = await promise;
     expect(result.success).toBe(true);
-    expect(exec).toHaveBeenCalled();
+    expect(spawn).toHaveBeenCalledWith('gdbus', expect.any(Array), { shell: false });
   });
 
   it('should return error if both loginctl and fallback fail', async () => {
     // Mock loginctl failure
     const mockProc = new EventEmitter() as any;
     mockProc.stderr = new EventEmitter();
-    vi.mocked(spawn).mockReturnValue(mockProc);
+    vi.mocked(spawn).mockImplementation((command) => {
+      if (command === 'loginctl') {
+        return mockProc;
+      }
 
-    // Mock fallback failure
-    vi.mocked(exec).mockImplementation((cmd, cb: any) => {
-      cb(new Error('D-Bus error'), { stdout: '', stderr: '' });
-      return {} as any;
+      const fallbackProc = new EventEmitter() as any;
+      fallbackProc.stderr = new EventEmitter();
+      setTimeout(() => {
+        fallbackProc.stderr.emit('data', Buffer.from('D-Bus error'));
+        fallbackProc.emit('close', 1);
+      }, 0);
+      return fallbackProc;
     });
 
     const promise = unlocker.performUnlock();

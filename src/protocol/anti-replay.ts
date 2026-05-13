@@ -1,3 +1,9 @@
+/**
+ * In the context of software development, nonce means "number used once".
+ * It is a random or pseudo-random value generated to ensure that a
+ * specific operation occurs only once, preventing replay attacks
+ * (where a hacker intercepts a legitimate request and resends it to the server).
+ */
 export class NonceStore {
   private usedNonces = new Map<string, number>();
   private readonly ttl: number;
@@ -12,7 +18,7 @@ export class NonceStore {
    */
   isValid(nonce: string): boolean {
     this.cleanup();
-    
+
     if (this.usedNonces.has(nonce)) {
       return false;
     }
@@ -40,7 +46,7 @@ export class ClockService {
   static isWithinWindow(timestamp: string | Date): boolean {
     const now = Date.now();
     const ts = typeof timestamp === 'string' ? new Date(timestamp).getTime() : timestamp.getTime();
-    
+
     if (isNaN(ts)) return false;
 
     return Math.abs(now - ts) <= ClockService.SKEW_WINDOW_MS;

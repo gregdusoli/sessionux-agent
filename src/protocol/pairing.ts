@@ -57,7 +57,7 @@ export class SetupTokenService {
    * Generates a QR payload for pairing.
    */
   generateQrPayload(pcId: string, ip: string, port: number): { token: string; payload: any } {
-    const { token } = this.generateToken(pcId);
+    const { token, expiresAt } = this.generateToken(pcId);
     return {
       token,
       payload: {
@@ -66,6 +66,7 @@ export class SetupTokenService {
         pc_id: pcId,
         ip,
         port,
+        expires_at: new Date(expiresAt).toISOString(),
       }
     };
   }

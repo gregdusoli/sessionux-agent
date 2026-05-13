@@ -29,7 +29,7 @@ export class DiscoveryService {
       } else {
         console.log('Avahi daemon is active.');
       }
-    } catch (err) {
+    } catch (_err) {
       console.warn('Could not check Avahi daemon status. Ensure systemd is available.');
     }
   }
