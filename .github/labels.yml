@@ -1,0 +1,21 @@
+- name: bug
+  color: "d73a4a"
+  description: Something is not working as expected.
+- name: security
+  color: "b60205"
+  description: Security-sensitive protocol, storage, biometric, or unlock work.
+- name: performance
+  color: "fbca04"
+  description: Latency, discovery, startup, or resource-usage work.
+- name: agent
+  color: "1d76db"
+  description: Linux desktop Agent, Electron, Fastify, mDNS, storage, or unlock work.
+- name: mobile
+  color: "0e8a16"
+  description: Cross-repository work that also affects Sessionux Mobile.
+- name: good first issue
+  color: "7057ff"
+  description: Small, well-scoped work suitable for new contributors.
+- name: rfc
+  color: "5319e7"
+  description: Design proposal or architecture discussion before implementation.
