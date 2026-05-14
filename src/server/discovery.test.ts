@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   destroy: vi.fn(),
   stop: vi.fn(),
   on: vi.fn(),
+  exec: vi.fn(),
 }));
 
 // Mock bonjour-service
@@ -22,7 +23,7 @@ vi.mock('bonjour-service', () => {
 
 // Mock child_process
 vi.mock('node:child_process', () => ({
-  exec: vi.fn((cmd, cb) => cb(null, { stdout: 'active', stderr: '' })),
+  exec: mocks.exec,
 }));
 
 describe('DiscoveryService', () => {
@@ -31,6 +32,7 @@ describe('DiscoveryService', () => {
   beforeEach(() => {
     discovery = new DiscoveryService();
     vi.clearAllMocks();
+    mocks.exec.mockImplementation((_cmd, cb) => cb(null, { stdout: 'active', stderr: '' }));
     vi.useFakeTimers();
   });
 
@@ -58,5 +60,32 @@ describe('DiscoveryService', () => {
 
     expect(mocks.stop).toHaveBeenCalledOnce();
     expect(mocks.destroy).toHaveBeenCalledOnce();
+  });
+
+  it('should warn when Avahi is inactive', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    mocks.exec.mockImplementation((_cmd, cb) => cb(null, { stdout: 'inactive', stderr: '' }));
+
+    await discovery.start(3000);
+
+    expect(warn).toHaveBeenCalledWith(
+      'Avahi daemon is not active. mDNS discovery might be limited on Linux.'
+    );
+  });
+
+  it('should retry publication after mDNS errors', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    mocks.on.mockImplementation((event, callback) => {
+      if (event === 'error') {
+        callback(new Error('publish failed'));
+      }
+    });
+
+    await discovery.start(3000);
+
+    expect(mocks.publish).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(5000);
+    expect(mocks.publish).toHaveBeenCalledTimes(2);
   });
 });

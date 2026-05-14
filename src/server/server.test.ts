@@ -2,6 +2,7 @@ import { createAgentServer, type AgentStorage } from './app';
 import { PROTOCOL_VERSION, type UnlockPayload } from '../protocol';
 import { SetupTokenService } from '../protocol/pairing';
 import { SignatureService } from '../protocol/signature';
+import { FailureCooldown } from '../protocol/security';
 
 const pcId = '86903260-2646-46c5-844c-9f826359049c';
 const deviceId = 'f01d8b76-e5fa-45f1-a512-7d7039d305b6';
@@ -204,6 +205,124 @@ describe('Agent Fastify server', () => {
 
     expect(response.statusCode).toBe(400);
     expect(JSON.parse(response.payload).error_code).toBe('INVALID_REQUEST');
+  });
+
+  it('rejects malformed pairing requests', async () => {
+    const keys = SignatureService.generateRawKeyPair();
+    const server = await createAgentServer({
+      storage: createStorage(keys.publicKey),
+      unlocker: { performUnlock: vi.fn() },
+    });
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/pairing/complete',
+      payload: { protocol_version: PROTOCOL_VERSION },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.payload).message).toBe('Invalid pairing request');
+  });
+
+  it('rejects unlock requests for another pc_id', async () => {
+    const keys = SignatureService.generateRawKeyPair();
+    const server = await createAgentServer({
+      storage: createStorage(keys.publicKey),
+      unlocker: { performUnlock: vi.fn() },
+    });
+    const payload = { ...createPayload(), pc_id: crypto.randomUUID() };
+    const signature = SignatureService.signPayloadRaw(payload, keys.privateKey);
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/unlock',
+      payload: { payload, signature },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(JSON.parse(response.payload).error_code).toBe('WRONG_PC');
+  });
+
+  it('rejects unlock requests from unpaired devices', async () => {
+    const keys = SignatureService.generateRawKeyPair();
+    const storage = createStorage(keys.publicKey);
+    vi.spyOn(storage, 'getTrustedDevices').mockReturnValue([]);
+    const server = await createAgentServer({
+      storage,
+      unlocker: { performUnlock: vi.fn() },
+    });
+    const payload = createPayload();
+    const signature = SignatureService.signPayloadRaw(payload, keys.privateKey);
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/unlock',
+      payload: { payload, signature },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(JSON.parse(response.payload).error_code).toBe('DEVICE_UNTRUSTED');
+  });
+
+  it('returns server error when the session unlocker fails', async () => {
+    const keys = SignatureService.generateRawKeyPair();
+    const server = await createAgentServer({
+      storage: createStorage(keys.publicKey),
+      unlocker: { performUnlock: vi.fn(async () => ({ success: false, error: 'loginctl failed' })) },
+    });
+    const payload = createPayload();
+    const signature = SignatureService.signPayloadRaw(payload, keys.privateKey);
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/unlock',
+      payload: { payload, signature },
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(JSON.parse(response.payload).message).toBe('loginctl failed');
+  });
+
+  it('blocks unlock requests while cooldown is active', async () => {
+    const keys = SignatureService.generateRawKeyPair();
+    const cooldown = new FailureCooldown();
+    vi.spyOn(cooldown, 'isBlocked').mockReturnValue(true);
+    const server = await createAgentServer({
+      storage: createStorage(keys.publicKey),
+      unlocker: { performUnlock: vi.fn() },
+      cooldown,
+    });
+    const payload = createPayload();
+    const signature = SignatureService.signPayloadRaw(payload, keys.privateKey);
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/unlock',
+      payload: { payload, signature },
+    });
+
+    expect(response.statusCode).toBe(429);
+    expect(JSON.parse(response.payload).error_code).toBe('TOO_MANY_FAILURES');
+  });
+
+  it('lists and removes devices', async () => {
+    const keys = SignatureService.generateRawKeyPair();
+    const storage = createStorage(keys.publicKey);
+    const server = await createAgentServer({
+      storage,
+      unlocker: { performUnlock: vi.fn() },
+    });
+
+    const list = await server.inject({ method: 'GET', url: '/devices' });
+    const remove = await server.inject({
+      method: 'DELETE',
+      url: `/devices/${deviceId}`,
+    });
+
+    expect(list.statusCode).toBe(200);
+    expect(JSON.parse(list.payload)[0].id).toBe(deviceId);
+    expect(remove.statusCode).toBe(200);
+    expect(storage.removeDevice).toHaveBeenCalledWith(deviceId);
   });
 
   it('rejects bodies over the configured limit', async () => {
