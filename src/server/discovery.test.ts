@@ -1,14 +1,21 @@
 import { DiscoveryService } from './discovery';
 
+const mocks = vi.hoisted(() => ({
+  publish: vi.fn(),
+  destroy: vi.fn(),
+  stop: vi.fn(),
+  on: vi.fn(),
+}));
+
 // Mock bonjour-service
 vi.mock('bonjour-service', () => {
   return {
     Bonjour: class {
-      publish = vi.fn().mockImplementation(() => ({
-        on: vi.fn(),
-        stop: vi.fn(),
+      publish = mocks.publish.mockImplementation(() => ({
+        on: mocks.on,
+        stop: mocks.stop,
       }));
-      destroy = vi.fn();
+      destroy = mocks.destroy;
     }
   };
 });
@@ -34,12 +41,22 @@ describe('DiscoveryService', () => {
 
   it('should start and publish service', async () => {
     await discovery.start(3000);
-    // expect(discovery['isRunning']).toBe(true); // discovery['isRunning'] is private but we can check side effects
+
+    expect(mocks.publish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'sessionux',
+        protocol: 'tcp',
+        port: 3000,
+        txt: { v: '1.0' },
+      })
+    );
   });
 
   it('should stop and cleanup', async () => {
     await discovery.start(3000);
     discovery.stop();
-    // Verify cleanup logic
+
+    expect(mocks.stop).toHaveBeenCalledOnce();
+    expect(mocks.destroy).toHaveBeenCalledOnce();
   });
 });

@@ -1,26 +1,11 @@
 /**
- * Deterministic JSON stringify to ensure consistent signatures.
- * Basic implementation: sorts keys alphabetically.
+ * Canonical payload format for signatures:
+ * - UTF-8 JSON
+ * - object keys sorted lexicographically at every depth
+ * - arrays preserve order
+ * - no whitespace
+ * - protocol binary fields use unpadded Base64URL strings
  */
-export function canonicalize(obj: any): string {
-  if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) {
-    return JSON.stringify(obj);
-  }
-
-  const sortedKeys = Object.keys(obj).sort();
-  const sortedObj: any = {};
-  
-  for (const key of sortedKeys) {
-    sortedObj[key] = canonicalize(obj[key]);
-  }
-
-  // Note: We return the stringified version of the sorted object.
-  // We need to be careful with nested objects being stringified twice if we recursive incorrectly.
-  // Actually, a better approach is to sort the keys and then use JSON.stringify.
-  
-  return JSON.stringify(sortObject(obj));
-}
-
 function sortObject(obj: any): any {
   if (obj === null || typeof obj !== 'object') {
     return obj;
@@ -40,6 +25,10 @@ function sortObject(obj: any): any {
   return sortedObj;
 }
 
+export function canonicalize(obj: any): string {
+  return JSON.stringify(sortObject(obj));
+}
+
 export function serializeForSigning(payload: any): string {
-  return JSON.stringify(sortObject(payload));
+  return canonicalize(payload);
 }

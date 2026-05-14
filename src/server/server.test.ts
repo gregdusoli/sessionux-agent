@@ -1,26 +1,240 @@
-import Fastify from 'fastify';
-import { PROTOCOL_VERSION } from '../protocol/index';
+import { createAgentServer, type AgentStorage } from './app';
+import { PROTOCOL_VERSION, type UnlockPayload } from '../protocol';
+import { SetupTokenService } from '../protocol/pairing';
+import { SignatureService } from '../protocol/signature';
 
-// Mocking dependencies would be better but for a smoke test we can just check if health exists
-describe('Fastify Server Smoke Test', () => {
-  it('should respond to /health', async () => {
-    // We import dynamically to avoid side effects during setup if possible
-    // but since we are just testing the endpoints, we'll use a mocked version or inject
+const pcId = '86903260-2646-46c5-844c-9f826359049c';
+const deviceId = 'f01d8b76-e5fa-45f1-a512-7d7039d305b6';
 
-    const fastify = Fastify();
-    fastify.get('/health', async () => {
-      return { status: 'ok', protocol_version: PROTOCOL_VERSION };
+function createStorage(publicKey: string): AgentStorage {
+  const devices = [
+    {
+      id: deviceId,
+      name: 'phone',
+      publicKey,
+      addedAt: new Date().toISOString(),
+    },
+  ];
+
+  return {
+    getPcId: () => pcId,
+    addDevice: vi.fn((device) => devices.push(device)),
+    getTrustedDevices: () => devices,
+    updateLastUnlock: vi.fn(),
+    removeDevice: vi.fn(),
+  };
+}
+
+function createPayload(nonce: string = crypto.randomUUID()): UnlockPayload {
+  return {
+    protocol_version: PROTOCOL_VERSION,
+    command: 'unlock',
+    pc_id: pcId,
+    device_id: deviceId,
+    timestamp: new Date().toISOString(),
+    nonce,
+  };
+}
+
+describe('Agent Fastify server', () => {
+  it('responds to /health with a request id', async () => {
+    const keys = SignatureService.generateRawKeyPair();
+    const server = await createAgentServer({
+      storage: createStorage(keys.publicKey),
+      unlocker: { performUnlock: vi.fn() },
     });
 
-    const response = await fastify.inject({
-      method: 'GET',
-      url: '/health'
+    const response = await server.inject({ method: 'GET', url: '/health' });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['x-request-id']).toBeTruthy();
+    expect(JSON.parse(response.payload)).toEqual({
+      status: 'ok',
+      protocol_version: PROTOCOL_VERSION,
+    });
+  });
+
+  it('completes pairing with a valid one-time setup token', async () => {
+    const keys = SignatureService.generateRawKeyPair();
+    const storage = createStorage(keys.publicKey);
+    const pairingService = new SetupTokenService();
+    const { token } = pairingService.generateToken(pcId);
+    const server = await createAgentServer({
+      storage,
+      unlocker: { performUnlock: vi.fn() },
+      pairingService,
+    });
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/pairing/complete',
+      payload: {
+        protocol_version: PROTOCOL_VERSION,
+        pc_id: pcId,
+        setup_token: token,
+        device_id: crypto.randomUUID(),
+        public_key: keys.publicKey,
+        device_name: 'phone',
+      },
     });
 
     expect(response.statusCode).toBe(200);
-    expect(JSON.parse(response.payload)).toEqual({
-      status: 'ok',
-      protocol_version: PROTOCOL_VERSION
+    expect(storage.addDevice).toHaveBeenCalledOnce();
+  });
+
+  it('rejects a setup token issued for another pc_id', async () => {
+    const keys = SignatureService.generateRawKeyPair();
+    const pairingService = new SetupTokenService();
+    const { token } = pairingService.generateToken(crypto.randomUUID());
+    const server = await createAgentServer({
+      storage: createStorage(keys.publicKey),
+      unlocker: { performUnlock: vi.fn() },
+      pairingService,
     });
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/pairing/complete',
+      payload: {
+        protocol_version: PROTOCOL_VERSION,
+        pc_id: pcId,
+        setup_token: token,
+        device_id: crypto.randomUUID(),
+        public_key: keys.publicKey,
+        device_name: 'phone',
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
+  it('unlocks with a trusted device and valid signature', async () => {
+    const keys = SignatureService.generateRawKeyPair();
+    const unlocker = { performUnlock: vi.fn(async () => ({ success: true })) };
+    const storage = createStorage(keys.publicKey);
+    const server = await createAgentServer({ storage, unlocker });
+    const payload = createPayload();
+    const signature = SignatureService.signPayloadRaw(payload, keys.privateKey);
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/unlock',
+      payload: { payload, signature },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(unlocker.performUnlock).toHaveBeenCalledOnce();
+    expect(storage.updateLastUnlock).toHaveBeenCalledWith(deviceId);
+  });
+
+  it('rejects unlock from an unknown public key', async () => {
+    const trusted = SignatureService.generateRawKeyPair();
+    const attacker = SignatureService.generateRawKeyPair();
+    const server = await createAgentServer({
+      storage: createStorage(trusted.publicKey),
+      unlocker: { performUnlock: vi.fn() },
+    });
+    const payload = createPayload();
+    const signature = SignatureService.signPayloadRaw(payload, attacker.privateKey);
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/unlock',
+      payload: { payload, signature },
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(JSON.parse(response.payload).error_code).toBe('INVALID_SIGNATURE');
+  });
+
+  it('rejects repeated nonces', async () => {
+    const keys = SignatureService.generateRawKeyPair();
+    const server = await createAgentServer({
+      storage: createStorage(keys.publicKey),
+      unlocker: { performUnlock: vi.fn(async () => ({ success: true })) },
+    });
+    const payload = createPayload('same-nonce');
+    const signature = SignatureService.signPayloadRaw(payload, keys.privateKey);
+
+    await server.inject({ method: 'POST', url: '/unlock', payload: { payload, signature } });
+    const replay = await server.inject({
+      method: 'POST',
+      url: '/unlock',
+      payload: { payload, signature },
+    });
+
+    expect(replay.statusCode).toBe(403);
+    expect(JSON.parse(replay.payload).error_code).toBe('INVALID_NONCE');
+  });
+
+  it('returns server_time on clock skew', async () => {
+    const keys = SignatureService.generateRawKeyPair();
+    const server = await createAgentServer({
+      storage: createStorage(keys.publicKey),
+      unlocker: { performUnlock: vi.fn() },
+    });
+    const payload = {
+      ...createPayload(),
+      timestamp: new Date(Date.now() - 60_000).toISOString(),
+    };
+    const signature = SignatureService.signPayloadRaw(payload, keys.privateKey);
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/unlock',
+      payload: { payload, signature },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.payload).server_time).toBeTruthy();
+  });
+
+  it('rejects malformed unlock requests', async () => {
+    const keys = SignatureService.generateRawKeyPair();
+    const server = await createAgentServer({
+      storage: createStorage(keys.publicKey),
+      unlocker: { performUnlock: vi.fn() },
+    });
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/unlock',
+      payload: { payload: { protocol_version: PROTOCOL_VERSION } },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(JSON.parse(response.payload).error_code).toBe('INVALID_REQUEST');
+  });
+
+  it('rejects bodies over the configured limit', async () => {
+    const keys = SignatureService.generateRawKeyPair();
+    const server = await createAgentServer({
+      storage: createStorage(keys.publicKey),
+      unlocker: { performUnlock: vi.fn() },
+    });
+
+    const response = await server.inject({
+      method: 'POST',
+      url: '/unlock',
+      headers: { 'content-type': 'application/json' },
+      payload: JSON.stringify({ value: 'x'.repeat(70 * 1024) }),
+    });
+
+    expect(response.statusCode).toBe(413);
+  });
+
+  it('rate limits excessive requests by IP', async () => {
+    const keys = SignatureService.generateRawKeyPair();
+    const server = await createAgentServer({
+      storage: createStorage(keys.publicKey),
+      unlocker: { performUnlock: vi.fn() },
+    });
+
+    await server.inject({ method: 'GET', url: '/health' });
+    await server.inject({ method: 'GET', url: '/health' });
+    await server.inject({ method: 'GET', url: '/health' });
+    const response = await server.inject({ method: 'GET', url: '/health' });
+
+    expect(response.statusCode).toBe(429);
   });
 });

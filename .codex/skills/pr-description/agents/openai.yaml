@@ -1,0 +1,4 @@
+interface:
+  display_name: "PR Description"
+  short_description: "Create standardized Sessionux pull request descriptions."
+  default_prompt: "Create a pull request description for the current changes."

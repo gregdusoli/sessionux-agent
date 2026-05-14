@@ -3,17 +3,90 @@ import { NonceStore, ClockService } from './anti-replay';
 import { SetupTokenService } from './pairing';
 import { serializeForSigning } from './serialization';
 
-import { PairingRequestSchema, PROTOCOL_VERSION } from './index';
+import {
+  ErrorResponseSchema,
+  PairingQrPayloadSchema,
+  PairingRequestSchema,
+  PairingResponseSchema,
+  PROTOCOL_VERSION,
+  SignedUnlockRequestSchema,
+  UnlockPayloadSchema,
+  UnlockResponseSchema,
+} from './index';
 
 describe('Sessionux Protocol', () => {
   describe('Zod Validation', () => {
+    const uuid = '86903260-2646-46c5-844c-9f826359049c';
+    const publicKey = 'q83v7wrbWt_f4Jsj_d8fbHzcX8B28VM6T84bJuV2JW8';
+
+    it('should accept valid protocol payloads', () => {
+      expect(
+        PairingQrPayloadSchema.safeParse({
+          protocol_version: PROTOCOL_VERSION,
+          setup_token: uuid,
+          pc_id: uuid,
+          ip: '192.168.1.10',
+          port: 3000,
+          expires_at: new Date().toISOString(),
+        }).success
+      ).toBe(true);
+
+      expect(
+        PairingRequestSchema.safeParse({
+          protocol_version: PROTOCOL_VERSION,
+          pc_id: uuid,
+          setup_token: uuid,
+          device_id: uuid,
+          public_key: publicKey,
+          device_name: 'phone',
+        }).success
+      ).toBe(true);
+
+      const payload = {
+        protocol_version: PROTOCOL_VERSION,
+        command: 'unlock',
+        pc_id: uuid,
+        device_id: uuid,
+        timestamp: new Date().toISOString(),
+        nonce: 'q83v7wrbWt_f4Jsj_d8fbHzcX8B28VM6T84bJuV2JW8',
+      };
+
+      expect(UnlockPayloadSchema.safeParse(payload).success).toBe(true);
+      expect(
+        SignedUnlockRequestSchema.safeParse({
+          payload,
+          signature: 'MEUCIQDxJzKmO8D7uh4TxJatZb6eRmuJ3USiKjJeH7yhjvW1Yw',
+        }).success
+      ).toBe(true);
+      expect(
+        PairingResponseSchema.safeParse({
+          protocol_version: PROTOCOL_VERSION,
+          status: 'success',
+        }).success
+      ).toBe(true);
+      expect(
+        UnlockResponseSchema.safeParse({
+          protocol_version: PROTOCOL_VERSION,
+          status: 'clock_skew',
+          server_time: new Date().toISOString(),
+        }).success
+      ).toBe(true);
+      expect(
+        ErrorResponseSchema.safeParse({
+          protocol_version: PROTOCOL_VERSION,
+          error_code: 'INVALID_REQUEST',
+          message: 'Malformed unlock request',
+        }).success
+      ).toBe(true);
+    });
+
     it('should reject invalid protocol version', () => {
       const payload = {
         protocol_version: '0.9', // Incompatible
         pc_id: '86903260-2646-46c5-844c-9f826359049c',
         setup_token: '86903260-2646-46c5-844c-9f826359049c',
         device_id: '86903260-2646-46c5-844c-9f826359049c',
-        public_key: 'key',
+        public_key: publicKey,
         device_name: 'phone'
       };
       
@@ -25,6 +98,19 @@ describe('Sessionux Protocol', () => {
       const payload = { protocol_version: PROTOCOL_VERSION };
       const result = PairingRequestSchema.safeParse(payload);
       expect(result.success).toBe(false);
+    });
+
+    it('should reject non Base64URL key and signature fields', () => {
+      expect(
+        PairingRequestSchema.safeParse({
+          protocol_version: PROTOCOL_VERSION,
+          pc_id: uuid,
+          setup_token: uuid,
+          device_id: uuid,
+          public_key: 'not/base64+url=',
+          device_name: 'phone',
+        }).success
+      ).toBe(false);
     });
   });
 
@@ -71,6 +157,18 @@ describe('Sessionux Protocol', () => {
       const signature = SignatureService.signPayloadRaw(payload, privateKey);
 
       expect(SignatureService.verifySignature(payload, signature, publicKey)).toBe(true);
+    });
+
+    it('should fail verification with an unknown public key', () => {
+      const signer = SignatureService.generateRawKeyPair();
+      const unknownDevice = SignatureService.generateRawKeyPair();
+      const payload = { command: 'unlock', nonce: '123' };
+
+      const signature = SignatureService.signPayloadRaw(payload, signer.privateKey);
+
+      expect(SignatureService.verifySignature(payload, signature, unknownDevice.publicKey)).toBe(
+        false
+      );
     });
   });
 
@@ -129,6 +227,14 @@ describe('Sessionux Protocol', () => {
       expect(service.consume(token)).toBe(null);
       
       vi.useRealTimers();
+    });
+
+    it('should bind consumed tokens to the issuing pc_id', () => {
+      const service = new SetupTokenService();
+      const { token } = service.generateToken('pc-a');
+
+      expect(service.consume(token)).toBe('pc-a');
+      expect(service.consume(token)).not.toBe('pc-b');
     });
   });
 });
