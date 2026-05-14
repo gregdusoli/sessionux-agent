@@ -1,4 +1,4 @@
-import { isBruteForce, SecurityConfig } from './security';
+import { FailureCooldown, isBruteForce, SecurityConfig } from './security';
 
 describe('Security Logic', () => {
   it('should detect brute force when requests exceed limit', () => {
@@ -15,5 +15,24 @@ describe('Security Logic', () => {
 
   it('should have correct request timeout', () => {
     expect(SecurityConfig.requestTimeout).toBe(5000);
+  });
+
+  it('should apply progressive cooldown after repeated failures', () => {
+    const cooldown = new FailureCooldown(2, 100, 1000);
+
+    expect(cooldown.isBlocked('ip:device')).toBe(false);
+    expect(cooldown.recordFailure('ip:device')).toBe(0);
+    expect(cooldown.recordFailure('ip:device')).toBe(100);
+    expect(cooldown.isBlocked('ip:device')).toBe(true);
+  });
+
+  it('should clear cooldown state after a successful unlock', () => {
+    const cooldown = new FailureCooldown(1, 100, 1000);
+
+    cooldown.recordFailure('ip:device');
+    expect(cooldown.isBlocked('ip:device')).toBe(true);
+
+    cooldown.recordSuccess('ip:device');
+    expect(cooldown.isBlocked('ip:device')).toBe(false);
   });
 });

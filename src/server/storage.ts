@@ -28,8 +28,8 @@ export class StorageService {
   private configFile: string;
   private config: Config | null = null;
 
-  constructor() {
-    this.configDir = path.join(os.homedir(), '.config', 'sessionux');
+  constructor(configDir = path.join(os.homedir(), '.config', 'sessionux')) {
+    this.configDir = configDir;
     this.configFile = path.join(this.configDir, 'config.json');
   }
 
@@ -50,6 +50,7 @@ export class StorageService {
     } else {
       this.load();
       fs.chmodSync(this.configFile, 0o600);
+      this.save();
     }
   }
 

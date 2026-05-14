@@ -6,6 +6,10 @@ import { base64UrlToBytes, bytesToBase64Url } from './encoding';
 
 ed25519.hashes.sha512 = sha512;
 
+export interface KeyPairProvider {
+  generateKeyPair(): { publicKey: string; privateKey: string };
+}
+
 export class SignatureService {
   /**
    * Generates a new Ed25519 key pair.
