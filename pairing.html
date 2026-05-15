@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Pair Device - Sessionux</title>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
   <style>
     :root {
       color-scheme: dark;
@@ -28,8 +27,27 @@
       margin-bottom: 24px;
       box-shadow: 0 10px 30px rgba(0,0,0,0.5);
     }
-    canvas {
+    img {
       display: block;
+      width: 256px;
+      height: 256px;
+    }
+    #qr-svg {
+      width: 256px;
+      height: 256px;
+    }
+    #qr-svg svg {
+      display: block;
+      width: 256px;
+      height: 256px;
+    }
+    .hidden {
+      display: none;
+    }
+    .error {
+      color: #ff9b9b;
+      font-size: 14px;
+      max-width: 320px;
     }
     .timer {
       font-size: 14px;
@@ -57,28 +75,51 @@
   <p>Scan this code with the Sessionux Mobile app</p>
   
   <div id="qrcode-container">
-    <canvas id="qr-canvas"></canvas>
+    <img id="qr-image" class="hidden" alt="Sessionux pairing QR Code" />
+    <div id="qr-svg" class="hidden"></div>
   </div>
+
+  <div class="error hidden" id="pairing-error"></div>
 
   <div class="timer" id="timer">Expires in: <span id="countdown">120</span>s</div>
 
   <button class="cancel-btn" id="cancel-btn">Cancel Pairing</button>
 
   <script>
-    window.sessionux.onPairingData((data) => {
-      const { payload, expiresAt } = data;
-      const canvas = document.getElementById('qr-canvas');
-      
-      QRCode.toCanvas(canvas, JSON.stringify(payload), {
-        width: 256,
-        margin: 0,
-        color: {
-          dark: '#101419',
-          light: '#ffffff'
+    function renderPairingData(data) {
+      const { qrDataUrl, qrSvg, expiresAt } = data;
+      const qrSvgContainer = document.getElementById('qr-svg');
+      const qrImage = document.getElementById('qr-image');
+      const pairingError = document.getElementById('pairing-error');
+
+      const showSvgFallback = () => {
+        if (!qrSvg) {
+          pairingError.innerText = 'Unable to render pairing QR Code.';
+          pairingError.classList.remove('hidden');
+          return;
         }
-      }, (error) => {
-        if (error) console.error(error);
-      });
+
+        qrSvgContainer.innerHTML = qrSvg;
+        qrSvgContainer.classList.remove('hidden');
+        qrImage.classList.add('hidden');
+        pairingError.classList.add('hidden');
+      };
+
+      if (qrDataUrl) {
+        qrImage.onload = () => {
+          qrImage.classList.remove('hidden');
+          qrSvgContainer.classList.add('hidden');
+          pairingError.classList.add('hidden');
+        };
+        qrImage.onerror = showSvgFallback;
+        qrImage.src = qrDataUrl;
+      } else if (qrSvg) {
+        showSvgFallback();
+      } else {
+        pairingError.innerText = 'Unable to render pairing QR Code.';
+        pairingError.classList.remove('hidden');
+        return;
+      }
 
       const updateTimer = () => {
         const remaining = Math.max(0, Math.floor((expiresAt - Date.now()) / 1000));
@@ -90,6 +131,16 @@
 
       setInterval(updateTimer, 1000);
       updateTimer();
+    }
+
+    window.renderPairingData = renderPairingData;
+
+    window.sessionux.onPairingData(renderPairingData);
+
+    window.sessionux.onPairingError((data) => {
+      document.getElementById('pairing-error').innerText =
+        data?.message || 'Unable to generate pairing QR Code.';
+      document.getElementById('pairing-error').classList.remove('hidden');
     });
 
     document.getElementById('cancel-btn').addEventListener('click', () => {

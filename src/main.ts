@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage } from 'electron';
 import path from 'node:path';
 import { fork, ChildProcess } from 'node:child_process';
 import os from 'node:os';
+import QRCode from 'qrcode';
 
 let mainWindow: BrowserWindow | null = null;
 let pairingWindow: BrowserWindow | null = null;
@@ -12,7 +13,7 @@ let currentPairingToken: string | null = null;
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 function startServer() {
-  const serverPath = isDev 
+  const serverPath = isDev
     ? path.join(process.cwd(), 'src', 'server', 'index.ts')
     : path.join(app.getAppPath(), 'dist', 'server', 'index.js');
 
@@ -22,15 +23,44 @@ function startServer() {
     silent: false,
   });
 
-  serverProcess.on('message', (msg: any) => {
+  serverProcess.on('message', async (msg: any) => {
     if (msg.type === 'pairing-token-generated') {
       currentPairingToken = msg.token;
-      pairingWindow?.webContents.send('pairing-data', { 
-        payload: msg.payload, 
-        expiresAt: new Date(msg.payload.expires_at).getTime(),
-      });
+      try {
+        const qrPayload = JSON.stringify(msg.payload);
+        const qrOptions = {
+          color: {
+            dark: '#101419',
+            light: '#ffffff',
+          },
+          margin: 0,
+          width: 256,
+        };
+        const [qrDataUrl, qrSvg] = await Promise.all([
+          QRCode.toDataURL(qrPayload, qrOptions),
+          QRCode.toString(qrPayload, { ...qrOptions, type: 'svg' }),
+        ]);
+
+        console.log('Pairing QR generated');
+        const pairingData = {
+          payload: msg.payload,
+          qrDataUrl,
+          qrSvg,
+          expiresAt: new Date(msg.payload.expires_at).getTime(),
+        };
+        pairingWindow?.webContents.send('pairing-data', pairingData);
+        await pairingWindow?.webContents.executeJavaScript(
+          `window.renderPairingData?.(${JSON.stringify(pairingData)})`
+        );
+      } catch (error) {
+        console.error('Failed to generate pairing QR', error);
+        pairingWindow?.webContents.send('pairing-error', {
+          message: 'Failed to generate pairing QR',
+        });
+      }
     }
     if (msg.type === 'pairing-success') {
+      currentPairingToken = null;
       pairingWindow?.close();
       // Show notification or update UI
     }
@@ -48,11 +78,23 @@ function startServer() {
   });
 }
 
+function cancelCurrentPairingToken() {
+  if (!currentPairingToken) {
+    return;
+  }
+
+  serverProcess?.send({
+    type: 'cancel-pairing-token',
+    token: currentPairingToken,
+  });
+  currentPairingToken = null;
+}
+
 function createTray() {
   // Use a placeholder or a real icon if it exists
-  const icon = nativeImage.createEmpty(); 
+  const icon = nativeImage.createEmpty();
   tray = new Tray(icon);
-  
+
   const contextMenu = Menu.buildFromTemplate([
     { label: 'Sessionux Agent', enabled: false },
     { type: 'separator' },
@@ -88,7 +130,7 @@ function createMainWindow() {
   });
 
   mainWindow.loadFile(path.join(process.cwd(), 'index.html'));
-  
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
@@ -121,6 +163,7 @@ function createPairingWindow() {
   });
 
   pairingWindow.on('closed', () => {
+    cancelCurrentPairingToken();
     pairingWindow = null;
   });
 }
@@ -142,10 +185,7 @@ ipcMain.on('start-pairing', () => {
 });
 
 ipcMain.on('pairing-cancelled', () => {
-  if (currentPairingToken) {
-    serverProcess?.send({ type: 'cancel-pairing-token', token: currentPairingToken });
-    currentPairingToken = null;
-  }
+  cancelCurrentPairingToken();
   pairingWindow?.close();
 });
 
@@ -166,6 +206,8 @@ ipcMain.handle('devices:remove', async (_event, deviceId: string) => {
   }
   return response.json();
 });
+
+app.disableHardwareAcceleration();
 
 app.whenReady().then(() => {
   startServer();

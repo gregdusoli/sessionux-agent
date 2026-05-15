@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('sessionux', {
   startPairing: () => ipcRenderer.send('start-pairing'),
@@ -9,5 +9,10 @@ contextBridge.exposeInMainWorld('sessionux', {
     const listener = (_event, data) => callback(data);
     ipcRenderer.on('pairing-data', listener);
     return () => ipcRenderer.removeListener('pairing-data', listener);
+  },
+  onPairingError: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('pairing-error', listener);
+    return () => ipcRenderer.removeListener('pairing-error', listener);
   },
 });
